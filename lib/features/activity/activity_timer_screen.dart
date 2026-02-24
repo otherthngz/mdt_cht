@@ -155,7 +155,7 @@ class _ActivityTimerScreenState extends ConsumerState<ActivityTimerScreen> {
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<ActivityCategory>(
-                value: _category,
+                initialValue: _category,
                 decoration: const InputDecoration(
                   labelText: 'Category',
                   border: OutlineInputBorder(),
@@ -168,15 +168,18 @@ class _ActivityTimerScreenState extends ConsumerState<ActivityTimerScreen> {
                       ),
                     )
                     .toList(),
-                onChanged: (value) {
-                  if (value != null) {
-                    setState(() => _category = value);
-                  }
-                },
+                // UI-2 fix: lock when timer is running
+                onChanged: _startedAt != null
+                    ? null
+                    : (value) {
+                        if (value != null) {
+                          setState(() => _category = value);
+                        }
+                      },
               ),
               const SizedBox(height: 8),
               DropdownButtonFormField<ActivityState>(
-                value: _state,
+                initialValue: _state,
                 decoration: const InputDecoration(
                   labelText: 'State',
                   border: OutlineInputBorder(),
@@ -189,15 +192,18 @@ class _ActivityTimerScreenState extends ConsumerState<ActivityTimerScreen> {
                       ),
                     )
                     .toList(),
-                onChanged: (value) {
-                  if (value != null) {
-                    setState(() => _state = value);
-                  }
-                },
+                // UI-2 fix: lock when timer is running
+                onChanged: _startedAt != null
+                    ? null
+                    : (value) {
+                        if (value != null) {
+                          setState(() => _state = value);
+                        }
+                      },
               ),
               const SizedBox(height: 8),
               DropdownButtonFormField<String>(
-                value: _reasonCode,
+                initialValue: _reasonCode,
                 decoration: const InputDecoration(
                   labelText: 'Reason code (optional)',
                   border: OutlineInputBorder(),

@@ -43,13 +43,15 @@ class _CnUnitFormScreenState extends ConsumerState<CnUnitFormScreen> {
     try {
       final service = ref.read(mdtServiceProvider);
       if (widget.mode == CnUnitFormMode.hmMulai) {
+        // BUG-1 fix: use session.unitId; fall back to POC default only if not set
+        final unitId = session.unitId ?? 'H515';
         final sessionId = await service.submitPreShiftHourmeter(
           operatorId: session.operatorId!,
-          unitId: 'H515',
+          unitId: unitId,
           hmMulai: hmValue,
         );
         ref.read(sessionProvider.notifier).startShift(
-              unitId: 'H515',
+              unitId: unitId,
               sessionId: sessionId,
               hmStart: hmValue,
               shiftStartedAtUtc: DateTime.now().toUtc(),
@@ -108,9 +110,18 @@ class _CnUnitFormScreenState extends ConsumerState<CnUnitFormScreen> {
   @override
   Widget build(BuildContext context) {
     final isHmMulai = widget.mode == CnUnitFormMode.hmMulai;
+    final session = ref.watch(sessionProvider);
+    final unitId = session.unitId ?? 'H515';
+    final operatorId = session.operatorId ?? '-';
+    // BUG-10 / LOGIC-4 fix: dynamic titles based on mode and session
+    final title = isHmMulai ? 'CN UNIT : $unitId' : 'HM Akhir — $unitId';
+    final heading = isHmMulai ? 'CN UNIT : $unitId' : 'Akhiri Shift — $unitId';
+    final greeting = isHmMulai
+        ? 'Halo $operatorId! Silahkan masukan data terkini dengan benar'
+        : 'Operator $operatorId, masukan Hourmeter akhir shift.';
 
     return Scaffold(
-      appBar: AppBar(title: const Text('CN UNIT : H515')),
+      appBar: AppBar(title: Text(title)),
       body: Center(
         child: Card(
           child: SizedBox(
@@ -120,13 +131,13 @@ class _CnUnitFormScreenState extends ConsumerState<CnUnitFormScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text(
-                    'CN UNIT : H515',
-                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18),
+                  Text(
+                    heading,
+                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 18),
                   ),
                   const SizedBox(height: 8),
-                  const Text(
-                    'Halo AERI! Silahkan masukan data terkini dengan benar',
+                  Text(
+                    greeting,
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 12),

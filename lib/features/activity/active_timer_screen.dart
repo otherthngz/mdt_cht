@@ -59,10 +59,17 @@ class _ActiveTimerScreenState extends ConsumerState<ActiveTimerScreen> {
 
     setState(() => _stopping = true);
     try {
-      await ref.read(mdtServiceProvider).stopActivity(
+      final elapsed = await ref.read(mdtServiceProvider).stopActivity(
             operatorId: session.operatorId!,
             unitId: session.unitId!,
           );
+      // Accumulate to per-category totals for Ringkasan
+      if (session.activeStatus != null) {
+        ref.read(sessionProvider.notifier).addActivityDuration(
+              category: session.activeStatus!,
+              elapsed: elapsed,
+            );
+      }
       ref.read(sessionProvider.notifier).clearActivity();
       if (!mounted) {
         return;

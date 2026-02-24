@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../app/mdt_service.dart';
 import '../../app/providers.dart';
 import '../../app/session_state.dart';
 import '../../core/events/event_models.dart';
@@ -24,10 +23,17 @@ class _DispatchInboxScreenState extends ConsumerState<DispatchInboxScreen> {
   }
 
   Future<void> _reload() async {
-    final service = ref.read(mdtServiceProvider);
-    final data = await service.listAssignments();
-    if (mounted) {
-      setState(() => _assignments = data);
+    setState(() => _loading = true);
+    try {
+      final service = ref.read(mdtServiceProvider);
+      final data = await service.listAssignments();
+      if (mounted) {
+        setState(() => _assignments = data);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
   }
 
@@ -64,55 +70,71 @@ class _DispatchInboxScreenState extends ConsumerState<DispatchInboxScreen> {
     final titleController = TextEditingController();
     final detailsController = TextEditingController();
 
-    final create = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Log Radio Assignment'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: titleController,
-              decoration: const InputDecoration(labelText: 'Title'),
+    try {
+      final create = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Log Radio Assignment'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: titleController,
+                decoration: const InputDecoration(labelText: 'Title *'),
+              ),
+              TextField(
+                controller: detailsController,
+                decoration: const InputDecoration(labelText: 'Details'),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
             ),
-            TextField(
-              controller: detailsController,
-              decoration: const InputDecoration(labelText: 'Details'),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Create'),
             ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Create'),
-          ),
-        ],
-      ),
-    );
+      );
 
-    if (create != true) {
-      return;
+      if (create != true) {
+        return;
+      }
+
+      // LOGIC-5 fix: block empty title
+      if (titleController.text.trim().isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Title wajib diisi.')),
+          );
+        }
+        return;
+      }
+
+      final session = ref.read(sessionProvider);
+      if (session.operatorId == null || session.unitId == null) {
+        return;
+      }
+
+      final service = ref.read(mdtServiceProvider);
+      await service.createRadioAssignment(
+        operatorId: session.operatorId!,
+        unitId: session.unitId!,
+        title: titleController.text.trim(),
+        details: detailsController.text.trim().isEmpty
+            ? null
+            : detailsController.text.trim(),
+      );
+      await _reload();
+    } finally {
+      // BUG-8 fix: always dispose controllers to avoid memory leak
+      titleController.dispose();
+      detailsController.dispose();
     }
-
-    final session = ref.read(sessionProvider);
-    if (session.operatorId == null || session.unitId == null) {
-      return;
-    }
-
-    final service = ref.read(mdtServiceProvider);
-    await service.createRadioAssignment(
-      operatorId: session.operatorId!,
-      unitId: session.unitId!,
-      title: titleController.text.trim(),
-      details: detailsController.text.trim().isEmpty
-          ? null
-          : detailsController.text.trim(),
-    );
-    await _reload();
   }
 
   Future<void> _decide(
@@ -120,51 +142,56 @@ class _DispatchInboxScreenState extends ConsumerState<DispatchInboxScreen> {
     AssignmentDecision decision,
   ) async {
     final reasonController = TextEditingController();
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('${decision.name.toUpperCase()} Assignment'),
-        content: TextField(
-          controller: reasonController,
-          decoration: const InputDecoration(labelText: 'Reason'),
+    try {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('${decision.name.toUpperCase()} Assignment'),
+          content: TextField(
+            controller: reasonController,
+            decoration: const InputDecoration(labelText: 'Reason'),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Submit'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Submit'),
-          ),
-        ],
-      ),
-    );
+      );
 
-    if (confirm != true || reasonController.text.trim().isEmpty) {
-      return;
+      if (confirm != true || reasonController.text.trim().isEmpty) {
+        return;
+      }
+
+      final session = ref.read(sessionProvider);
+      if (session.operatorId == null || session.unitId == null) {
+        return;
+      }
+
+      final service = ref.read(mdtServiceProvider);
+      await service.decideAssignment(
+        operatorId: session.operatorId!,
+        unitId: session.unitId!,
+        assignment: assignment,
+        decision: decision,
+        reason: reasonController.text.trim(),
+      );
+
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Decision logged locally and queued for sync.')),
+      );
+    } finally {
+      // BUG-9 fix: always dispose to avoid memory leak
+      reasonController.dispose();
     }
-
-    final session = ref.read(sessionProvider);
-    if (session.operatorId == null || session.unitId == null) {
-      return;
-    }
-
-    final service = ref.read(mdtServiceProvider);
-    await service.decideAssignment(
-      operatorId: session.operatorId!,
-      unitId: session.unitId!,
-      assignment: assignment,
-      decision: decision,
-      reason: reasonController.text.trim(),
-    );
-
-    if (!mounted) {
-      return;
-    }
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Decision logged locally and queued for sync.')),
-    );
   }
 
   @override
@@ -195,10 +222,13 @@ class _DispatchInboxScreenState extends ConsumerState<DispatchInboxScreen> {
               ],
             ),
           ),
+          // UI-4 fix: show a loading indicator during initial load AND refresh
           Expanded(
-            child: _assignments.isEmpty
-                ? const Center(child: Text('No assignments available.'))
-                : ListView.builder(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _assignments.isEmpty
+                    ? const Center(child: Text('No assignments available.'))
+                    : ListView.builder(
                     itemCount: _assignments.length,
                     itemBuilder: (context, index) {
                       final assignment = _assignments[index];

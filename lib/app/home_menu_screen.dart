@@ -11,7 +11,7 @@ class HomeMenuScreen extends StatelessWidget {
       appBar: AppBar(title: const Text('MDT Menu')),
       body: ListView(
         padding: const EdgeInsets.all(16),
-        children: [
+        children: const [
           _NavTile(
             title: 'P2H',
             subtitle: 'Pre-start checks and issues',

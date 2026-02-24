@@ -1,7 +1,6 @@
-import 'package:drift/drift.dart';
 
 import '../events/event_models.dart';
-import 'app_database.dart';
+import 'app_database.dart' hide ReasonCode;
 
 class ReasonCodeRepository {
   ReasonCodeRepository(this._db);

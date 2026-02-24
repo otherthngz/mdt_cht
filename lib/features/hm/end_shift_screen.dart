@@ -45,15 +45,17 @@ class _EndShiftScreenState extends ConsumerState<EndShiftScreen> {
         shiftSessionId: session.shiftSessionId!,
         hmEnd: hmEnd,
       );
-      ref.read(sessionProvider.notifier).clearShift();
+      ref.read(sessionProvider.notifier).setHmEnd(hmEnd);
       if (!mounted) {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Shift ended and events queued.')),
       );
+      // BUG-6 fix: navigate to Ringkasan so the operator sees the shift summary
+      // before logging out, consistent with the CnUnitFormScreen hmAkhir flow.
       Navigator.of(context).pushNamedAndRemoveUntil(
-        AppRoutes.login,
+        AppRoutes.ringkasan,
         (_) => false,
       );
     } catch (error) {
@@ -84,6 +86,7 @@ class _EndShiftScreenState extends ConsumerState<EndShiftScreen> {
             Text('Operator: ${session.operatorId ?? '-'}'),
             Text('Unit: ${session.unitId ?? '-'}'),
             Text('Shift Session: ${session.shiftSessionId ?? '-'}'),
+            Text('HM Mulai: ${session.hmStart?.toStringAsFixed(1) ?? '-'}'),
             const SizedBox(height: 12),
             TextField(
               controller: _hmEndController,

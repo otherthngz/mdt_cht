@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../app/mdt_service.dart';
 import '../../app/providers.dart';
 import '../../app/session_state.dart';
 import '../../core/events/event_models.dart';
@@ -116,6 +115,9 @@ class _SyncStatusScreenState extends ConsumerState<SyncStatusScreen> {
       return;
     }
     await _load();
+    if (!mounted) {
+      return;
+    }
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Correction event created and queued.')),
     );
@@ -166,7 +168,11 @@ class _SyncStatusScreenState extends ConsumerState<SyncStatusScreen> {
             ..._failedConflicts.map(
               (event) => Card(
                 child: ListTile(
-                  title: Text('${event.eventType.name} (${event.eventId})'),
+                  // UI-3 fix: show wire value (e.g. ASSIGNMENT_DECISION_SUBMITTED)
+                  // and only the last 8 chars of the UUID — readable for operators
+                  title: Text(
+                    '${event.eventType.wireValue} …${event.eventId.substring(event.eventId.length - 8)}',
+                  ),
                   subtitle: Text(
                     '${event.lastErrorCode ?? 'UNKNOWN'}: ${event.lastErrorMessage ?? '-'}',
                   ),

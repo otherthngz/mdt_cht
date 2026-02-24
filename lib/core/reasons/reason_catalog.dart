@@ -1,6 +1,7 @@
 import '../events/event_models.dart';
 
-const seededReasonCodes = <ReasonCode>[
+// ignore: prefer_const_declarations
+final seededReasonCodes = <ReasonCode>[
   ReasonCode(
     code: 'WAIT_LOAD',
     groupName: 'STANDBY_DELAY',

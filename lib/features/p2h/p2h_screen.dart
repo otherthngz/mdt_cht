@@ -208,12 +208,35 @@ class _P2HScreenState extends ConsumerState<P2HScreen> {
                           border: Border.all(color: Colors.black12),
                           borderRadius: BorderRadius.circular(6),
                         ),
-                        padding: const EdgeInsets.all(8),
+                        padding: const EdgeInsets.all(6),
                         alignment: Alignment.center,
-                        child: Text(
-                          item,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              item,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 11),
+                            ),
+                            const SizedBox(height: 4),
+                            // UI-1 fix: icon + text so state is clear without color
+                            Text(
+                              switch (_statusByItem[item]!) {
+                                P2HItemStatus.belum => '— belum',
+                                P2HItemStatus.aman => '✓ aman',
+                                P2HItemStatus.bermasalah => '✗ masalah',
+                              },
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                                color: switch (_statusByItem[item]!) {
+                                  P2HItemStatus.belum => Colors.grey,
+                                  P2HItemStatus.aman => const Color(0xFF0EAE7A),
+                                  P2HItemStatus.bermasalah => const Color(0xFFD92D20),
+                                },
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),

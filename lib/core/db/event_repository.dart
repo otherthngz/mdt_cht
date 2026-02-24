@@ -38,14 +38,30 @@ class EventRepository implements EventQueueStore {
         Variable<String>(event.occurredAtUtc.toIso8601String()),
         Variable<String>(event.deviceId),
         Variable<String>(event.operatorId),
-        Variable<String?>(event.unitId),
+        // Nullable fields: pass null directly for SQL NULL
+        if (event.unitId != null)
+          Variable<String>(event.unitId!)
+        else
+          const Variable(null),
         Variable<String>(event.payloadJson),
         Variable<String>(event.status.wireValue),
         Variable<int>(event.retryCount),
-        Variable<String?>(event.nextRetryAtUtc?.toIso8601String()),
-        Variable<String?>(event.lastErrorCode),
-        Variable<String?>(event.lastErrorMessage),
-        Variable<String?>(event.correctionOfEventId),
+        if (event.nextRetryAtUtc != null)
+          Variable<String>(event.nextRetryAtUtc!.toIso8601String())
+        else
+          const Variable(null),
+        if (event.lastErrorCode != null)
+          Variable<String>(event.lastErrorCode!)
+        else
+          const Variable(null),
+        if (event.lastErrorMessage != null)
+          Variable<String>(event.lastErrorMessage!)
+        else
+          const Variable(null),
+        if (event.correctionOfEventId != null)
+          Variable<String>(event.correctionOfEventId!)
+        else
+          const Variable(null),
         Variable<String>(event.createdAtUtc.toIso8601String()),
       ],
     );
@@ -145,6 +161,17 @@ class EventRepository implements EventQueueStore {
   }
 
   EventEnvelope _mapEvent(QueryRow row) {
+    // Helper: treat empty string as null for nullable fields
+    String? maybeStr(String col) {
+      final v = row.readNullable<String>(col);
+      return (v == null || v.isEmpty) ? null : v;
+    }
+
+    DateTime? maybeDate(String col) {
+      final s = maybeStr(col);
+      return s == null ? null : DateTime.parse(s);
+    }
+
     return EventEnvelope(
       eventId: row.read<String>('event_id'),
       idempotencyKey: row.read<String>('idempotency_key'),
@@ -152,16 +179,14 @@ class EventRepository implements EventQueueStore {
       occurredAtUtc: DateTime.parse(row.read<String>('occurred_at_utc')),
       deviceId: row.read<String>('device_id'),
       operatorId: row.read<String>('operator_id'),
-      unitId: row.readNullable<String>('unit_id'),
+      unitId: maybeStr('unit_id'),
       payloadJson: row.read<String>('payload_json'),
       status: SyncStatusCodec.fromWire(row.read<String>('status')),
       retryCount: row.read<int>('retry_count'),
-      nextRetryAtUtc: row.readNullable<String>('next_retry_at_utc') == null
-          ? null
-          : DateTime.parse(row.read<String>('next_retry_at_utc')),
-      lastErrorCode: row.readNullable<String>('last_error_code'),
-      lastErrorMessage: row.readNullable<String>('last_error_message'),
-      correctionOfEventId: row.readNullable<String>('correction_of_event_id'),
+      nextRetryAtUtc: maybeDate('next_retry_at_utc'),
+      lastErrorCode: maybeStr('last_error_code'),
+      lastErrorMessage: maybeStr('last_error_message'),
+      correctionOfEventId: maybeStr('correction_of_event_id'),
       createdAtUtc: DateTime.parse(row.read<String>('created_at_utc')),
     );
   }

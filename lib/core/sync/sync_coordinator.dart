@@ -42,13 +42,8 @@ class SyncCoordinator {
 
   Future<bool> _isConnected() async {
     final result = await _connectivity.checkConnectivity();
-    if (result is ConnectivityResult) {
-      return result != ConnectivityResult.none;
-    }
-    if (result is List<ConnectivityResult>) {
-      return result.any((item) => item != ConnectivityResult.none);
-    }
-    return true;
+    // connectivity_plus v6+ always returns List<ConnectivityResult>
+    return result.any((r) => r != ConnectivityResult.none);
   }
 
   void dispose() {

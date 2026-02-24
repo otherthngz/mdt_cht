@@ -1,7 +1,6 @@
-import 'package:drift/drift.dart';
 
 import '../events/event_models.dart';
-import 'app_database.dart';
+import 'app_database.dart' hide Assignment;
 
 class AssignmentRepository {
   AssignmentRepository(this._db);

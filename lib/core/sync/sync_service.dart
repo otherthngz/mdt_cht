@@ -1,7 +1,6 @@
 import 'dart:math';
 
 import '../db/event_queue_store.dart';
-import '../events/event_models.dart';
 import '../network/event_api_client.dart';
 
 class SyncRunResult {

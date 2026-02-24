@@ -13,6 +13,9 @@ class AppSessionState {
     this.activeStatus,
     this.activeActivityLabel,
     this.activityStartedAtUtc,
+    this.totalOperationalSeconds = 0,
+    this.totalStandbySeconds = 0,
+    this.totalBreakdownSeconds = 0,
   });
 
   final String? operatorId;
@@ -24,6 +27,19 @@ class AppSessionState {
   final ActivityState? activeStatus;
   final String? activeActivityLabel;
   final DateTime? activityStartedAtUtc;
+
+  // Accumulated durations per category (seconds)
+  final int totalOperationalSeconds;
+  final int totalStandbySeconds;
+  final int totalBreakdownSeconds;
+
+  Duration get totalOperational => Duration(seconds: totalOperationalSeconds);
+  Duration get totalStandby => Duration(seconds: totalStandbySeconds);
+  Duration get totalBreakdown => Duration(seconds: totalBreakdownSeconds);
+  Duration get totalShift => Duration(
+        seconds:
+            totalOperationalSeconds + totalStandbySeconds + totalBreakdownSeconds,
+      );
 
   bool get isLoggedIn => operatorId != null && operatorId!.isNotEmpty;
   bool get hasUnit => unitId != null && unitId!.isNotEmpty;
@@ -42,6 +58,9 @@ class AppSessionState {
     bool clearShift = false,
     bool clearActivity = false,
     bool clearAll = false,
+    int? totalOperationalSeconds,
+    int? totalStandbySeconds,
+    int? totalBreakdownSeconds,
   }) {
     if (clearAll) {
       return const AppSessionState();
@@ -60,6 +79,12 @@ class AppSessionState {
           clearActivity ? null : activeActivityLabel ?? this.activeActivityLabel,
       activityStartedAtUtc:
           clearActivity ? null : activityStartedAtUtc ?? this.activityStartedAtUtc,
+      totalOperationalSeconds:
+          clearAll || clearShift ? 0 : totalOperationalSeconds ?? this.totalOperationalSeconds,
+      totalStandbySeconds:
+          clearAll || clearShift ? 0 : totalStandbySeconds ?? this.totalStandbySeconds,
+      totalBreakdownSeconds:
+          clearAll || clearShift ? 0 : totalBreakdownSeconds ?? this.totalBreakdownSeconds,
     );
   }
 }
@@ -118,6 +143,32 @@ class SessionController extends StateNotifier<AppSessionState> {
 
   void clearActivity() {
     state = state.copyWith(clearActivity: true);
+  }
+
+  /// Called when an activity is stopped. Accumulates the elapsed time into
+  /// the correct per-category bucket so Ringkasan can display the breakdown.
+  void addActivityDuration({
+    required ActivityState category,
+    required Duration elapsed,
+  }) {
+    final secs = elapsed.inSeconds;
+    switch (category) {
+      case ActivityState.running:
+        state = state.copyWith(
+          totalOperationalSeconds: state.totalOperationalSeconds + secs,
+        );
+      case ActivityState.standbyDelay:
+        state = state.copyWith(
+          totalStandbySeconds: state.totalStandbySeconds + secs,
+        );
+      case ActivityState.breakdown:
+        state = state.copyWith(
+          totalBreakdownSeconds: state.totalBreakdownSeconds + secs,
+        );
+      default:
+        // Other states don't need tracking
+        break;
+    }
   }
 
   void clearShift() {

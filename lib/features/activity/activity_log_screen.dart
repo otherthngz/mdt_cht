@@ -6,6 +6,28 @@ import '../../app/routes.dart';
 import '../../app/session_state.dart';
 import '../../core/events/event_models.dart';
 
+/// Activities shown per state, matching real MDT categories.
+const _activitiesByState = <ActivityState, List<String>>{
+  ActivityState.running: [
+    'Loading',
+    'Hauling',
+    'Dumping',
+    'Spotting',
+  ],
+  ActivityState.standbyDelay: [
+    'Fuel',
+    'Operator Break',
+    'Traffic Jam',
+    'Waiting Instruction',
+  ],
+  ActivityState.breakdown: [
+    'Engine Trouble',
+    'Tire Damage',
+    'Electrical Fault',
+    'Hydraulic Issue',
+  ],
+};
+
 class ActivityLogScreen extends ConsumerWidget {
   const ActivityLogScreen({super.key});
 
@@ -21,6 +43,8 @@ class ActivityLogScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = _readState(context);
+    // LOGIC-3 fix: state-specific activity lists
+    final activities = _activitiesByState[state] ?? _activitiesByState[ActivityState.running]!;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Activity Log')),
@@ -41,7 +65,7 @@ class ActivityLogScreen extends ConsumerWidget {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  for (final activity in ['Activity 1', 'Activity 2', 'Activity 3', 'Activity 4'])
+                  for (final activity in activities)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 8),
                       child: SizedBox(
@@ -54,13 +78,10 @@ class ActivityLogScreen extends ConsumerWidget {
                             }
 
                             final service = ref.read(mdtServiceProvider);
-                            await service.selectActivityOption(
-                              operatorId: session.operatorId!,
-                              unitId: session.unitId!,
-                              state: state,
-                              activityName: activity,
-                            );
-
+                            // BUG-2 fix: only call startSelectedActivity (which combines
+                            // ACTIVITY_SELECTED + ACTIVITY_STARTED into one action).
+                            // Removed the separate selectActivityOption call that was
+                            // causing a double ACTIVITY_STARTED event.
                             final startedAt = await service.startSelectedActivity(
                               operatorId: session.operatorId!,
                               unitId: session.unitId!,
