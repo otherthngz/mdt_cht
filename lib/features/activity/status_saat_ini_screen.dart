@@ -18,6 +18,28 @@ const _kRed = Color(0xFFD92D20);
 const _kRedBg = Color(0xFFFEECEB);
 const _kNavy = Color(0xFF1A2B4A);
 
+/// Activities shown per state, matching real MDT categories.
+const _activitiesByState = <ActivityState, List<String>>{
+  ActivityState.running: [
+    'Loading',
+    'Hauling',
+    'Dumping',
+    'Spotting',
+  ],
+  ActivityState.standbyDelay: [
+    'Fuel',
+    'Operator Break',
+    'Traffic Jam',
+    'Waiting Instruction',
+  ],
+  ActivityState.breakdown: [
+    'Engine Trouble',
+    'Tire Damage',
+    'Electrical Fault',
+    'Hydraulic Issue',
+  ],
+};
+
 class StatusSaatIniScreen extends ConsumerStatefulWidget {
   const StatusSaatIniScreen({super.key});
 
@@ -121,25 +143,206 @@ class _StatusSaatIniScreenState extends ConsumerState<StatusSaatIniScreen> {
     }
   }
 
-  Future<void> _openActivityLog(ActivityState state) async {
-    await Navigator.of(context)
-        .pushNamed(AppRoutes.activityLog, arguments: {'state': state.name});
-    _recompute();
+  // ── Activity selection modal ──────────────────────────────────────────────
+  Future<void> _showActivityModal(ActivityState state) async {
+    final activities =
+        _activitiesByState[state] ?? _activitiesByState[ActivityState.running]!;
+
+    final title = switch (state) {
+      ActivityState.running => 'Activity Log',
+      ActivityState.standbyDelay => 'Standby Log',
+      ActivityState.breakdown => 'Breakdown Log',
+      _ => 'Activity Log',
+    };
+    final accentColor = switch (state) {
+      ActivityState.running => _kGreen,
+      ActivityState.standbyDelay => _kYellow,
+      ActivityState.breakdown => _kRed,
+      _ => _kGreen,
+    };
+    final tileBg = switch (state) {
+      ActivityState.running => _kGreenBg,
+      ActivityState.standbyDelay => _kYellowBg,
+      ActivityState.breakdown => _kRedBg,
+      _ => _kGreenBg,
+    };
+
+    final selected = await showDialog<String>(
+      context: context,
+      barrierColor: Colors.black54,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 620),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Header row
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                          color: _kNavy,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, size: 22),
+                      onPressed: () => Navigator.of(ctx).pop(),
+                      splashRadius: 20,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+
+                // Options grid – 2 columns
+                GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate:
+                      const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
+                    mainAxisSpacing: 12,
+                    crossAxisSpacing: 12,
+                    mainAxisExtent: 56,
+                  ),
+                  itemCount: activities.length,
+                  itemBuilder: (context, index) {
+                    final activity = activities[index];
+                    return Material(
+                      color: tileBg,
+                      borderRadius: BorderRadius.circular(10),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(10),
+                        onTap: () => Navigator.of(ctx).pop(activity),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(10),
+                            border:
+                                Border.all(color: accentColor.withOpacity(0.4)),
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            activity,
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 14,
+                              color: accentColor,
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    if (selected == null || !mounted) return;
+
+    // Start the activity
+    final session = ref.read(sessionProvider);
+    if (session.operatorId == null || session.unitId == null) return;
+
+    final service = ref.read(mdtServiceProvider);
+    final startedAt = await service.startSelectedActivity(
+      operatorId: session.operatorId!,
+      unitId: session.unitId!,
+      state: state,
+      activityName: selected,
+    );
+
+    ref.read(sessionProvider.notifier).setActiveActivity(
+          stateValue: state,
+          activityLabel: selected,
+          startedAtUtc: startedAt,
+        );
   }
 
+  // ── End Shift ─────────────────────────────────────────────────────────────
   Future<void> _confirmEndShift() async {
     final session = ref.read(sessionProvider);
     if (session.operatorId == null || session.unitId == null) return;
 
+    // EDGE CASE A: block if activity is running
     if (session.activeActivityLabel != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Hentikan aktivitas yang berjalan sebelum mengakhiri shift.'),
+      await showDialog(
+        context: context,
+        barrierColor: Colors.black54,
+        builder: (ctx) => Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Aktivitas masih berjalan',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: _kNavy,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Akhiri aktivitas terlebih dahulu sebelum mengakhiri shift.',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey.shade700,
+                      height: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.of(ctx).pop(),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _kNavy,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 12,
+                        ),
+                        elevation: 0,
+                      ),
+                      child: const Text(
+                        'Kembali',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ),
       );
       return;
     }
 
+    // Normal End Shift confirmation
     final service = ref.read(mdtServiceProvider);
     await service.requestEndShift(
       operatorId: session.operatorId!,
@@ -150,22 +353,76 @@ class _StatusSaatIniScreenState extends ConsumerState<StatusSaatIniScreen> {
 
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Akhiri Shift?'),
-        content: const Text(
-          'Apakah anda yakin ingin mengakhiri pekerjaan?',
+      barrierColor: Colors.black54,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Kembali'),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 480),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Apakah anda yakin ingin mengakhiri pekerjaan?',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    color: _kNavy,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Pastikan semua pekerjaan telah selesai sebelum mengakhiri shift.',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey.shade700,
+                    height: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.of(ctx).pop(false),
+                      child: Text(
+                        'Kembali',
+                        style: TextStyle(
+                          color: Colors.grey.shade600,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton(
+                      onPressed: () => Navigator.of(ctx).pop(true),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _kRed,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 12,
+                        ),
+                        elevation: 0,
+                      ),
+                      child: const Text(
+                        'Ya, Akhiri',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Ya, Akhiri'),
-          ),
-        ],
+        ),
       ),
     );
     if (confirm != true || !mounted) return;
@@ -391,7 +648,7 @@ class _StatusSaatIniScreenState extends ConsumerState<StatusSaatIniScreen> {
                     color: _kGreen,
                     bg: _kGreenBg,
                     enabled: !hasActivity,
-                    onTap: () => _openActivityLog(ActivityState.running),
+                    onTap: () => _showActivityModal(ActivityState.running),
                   ),
                   const SizedBox(width: 12),
                   _ActivityButton(
@@ -400,7 +657,8 @@ class _StatusSaatIniScreenState extends ConsumerState<StatusSaatIniScreen> {
                     color: _kYellow,
                     bg: _kYellowBg,
                     enabled: !hasActivity,
-                    onTap: () => _openActivityLog(ActivityState.standbyDelay),
+                    onTap: () =>
+                        _showActivityModal(ActivityState.standbyDelay),
                   ),
                   const SizedBox(width: 12),
                   _ActivityButton(
@@ -409,7 +667,7 @@ class _StatusSaatIniScreenState extends ConsumerState<StatusSaatIniScreen> {
                     color: _kRed,
                     bg: _kRedBg,
                     enabled: !hasActivity,
-                    onTap: () => _openActivityLog(ActivityState.breakdown),
+                    onTap: () => _showActivityModal(ActivityState.breakdown),
                   ),
                 ],
               ),

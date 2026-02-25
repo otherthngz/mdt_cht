@@ -105,23 +105,148 @@ class _P2HScreenState extends ConsumerState<P2HScreen> {
       return;
     }
 
+    // EDGE CASE B: block if >3 bermasalah items
+    final bermasalahCount =
+        _statusByItem.values.where((v) => v == P2HItemStatus.bermasalah).length;
+    if (bermasalahCount > 3) {
+      await showDialog(
+        context: context,
+        barrierColor: Colors.black54,
+        builder: (ctx) => Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Terlalu banyak temuan',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF1B2A4A),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Temuan bermasalah lebih dari 3. Anda harus melapor sebelum dapat melanjutkan.',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey.shade700,
+                      height: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.of(ctx).pop(),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF1B2A4A),
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 12,
+                        ),
+                        elevation: 0,
+                      ),
+                      child: const Text(
+                        'Mengerti',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+
     final confirmed = await showDialog<bool>(
           context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Apakah anda yakin?'),
-            content: const Text(
-              'Pastikan semua data telah diisi dengan benar sebelum melanjutkan.',
+          barrierColor: Colors.black54,
+          builder: (context) => Dialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(false),
-                child: const Text('Kembali'),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 480),
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Apakah anda yakin?',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF1B2A4A),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Pastikan semua data telah diisi dengan benar sebelum melanjutkan.',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey.shade700,
+                        height: 1.5,
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton(
+                          onPressed: () => Navigator.of(context).pop(false),
+                          child: Text(
+                            'Kembali',
+                            style: TextStyle(
+                              color: Colors.grey.shade600,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        ElevatedButton(
+                          onPressed: () => Navigator.of(context).pop(true),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF1B2A4A),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 20,
+                              vertical: 12,
+                            ),
+                            elevation: 0,
+                          ),
+                          child: const Text(
+                            'Ya, Lanjutkan',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-              FilledButton(
-                onPressed: () => Navigator.of(context).pop(true),
-                child: const Text('Ya, Lanjutkan'),
-              ),
-            ],
+            ),
           ),
         ) ??
         false;
@@ -177,71 +302,127 @@ class _P2HScreenState extends ConsumerState<P2HScreen> {
         ],
       ),
       body: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('1x klik Aman; 2x klik bermasalah; 3x klik reset'),
             Row(
-              mainAxisAlignment: MainAxisAlignment.end,
               children: [
+                Text(
+                  '1x klik Aman ; 2x klik bermasalah ; 3x klik reset',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.grey.shade700,
+                  ),
+                ),
+                const Spacer(),
                 Checkbox(
                   value: allChecked,
                   onChanged: (value) => _checkSemua(value ?? false),
+                  activeColor: const Color(0xFF1B2A4A),
                 ),
-                const Text('Check Semua'),
+                Text(
+                  'Check Semua',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.grey.shade700,
+                  ),
+                ),
               ],
             ),
+            const SizedBox(height: 12),
             Expanded(
-              child: GridView.count(
-                crossAxisCount: 4,
-                mainAxisSpacing: 8,
-                crossAxisSpacing: 8,
-                childAspectRatio: 1.45,
-                children: [
-                  for (final item in _items)
-                    InkWell(
-                      onTap: () => _toggleItem(item),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: _background(_statusByItem[item]!),
-                          border: Border.all(color: Colors.black12),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        padding: const EdgeInsets.all(6),
-                        alignment: Alignment.center,
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              item,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 11),
-                            ),
-                            const SizedBox(height: 4),
-                            // UI-1 fix: icon + text so state is clear without color
-                            Text(
-                              switch (_statusByItem[item]!) {
-                                P2HItemStatus.belum => '— belum',
-                                P2HItemStatus.aman => '✓ aman',
-                                P2HItemStatus.bermasalah => '✗ masalah',
-                              },
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w700,
-                                color: switch (_statusByItem[item]!) {
-                                  P2HItemStatus.belum => Colors.grey,
-                                  P2HItemStatus.aman => const Color(0xFF0EAE7A),
-                                  P2HItemStatus.bermasalah => const Color(0xFFD92D20),
-                                },
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                ],
+              child: GridView.builder(
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 4,
+                  mainAxisSpacing: 20,
+                  crossAxisSpacing: 20,
+                  mainAxisExtent: 140,
+                ),
+                itemCount: _items.length,
+                itemBuilder: (context, index) {
+                  final item = _items[index];
+                  final status = _statusByItem[item]!;
+                  return _buildTile(item, status);
+                },
               ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTile(String item, P2HItemStatus status) {
+    final bgColor = _background(status);
+    final borderColor = switch (status) {
+      P2HItemStatus.belum => Colors.grey.shade300,
+      P2HItemStatus.aman => const Color(0xFFB0DFC8),
+      P2HItemStatus.bermasalah => const Color(0xFFF0B3BD),
+    };
+
+    final statusIcon = switch (status) {
+      P2HItemStatus.belum => '—',
+      P2HItemStatus.aman => '✓',
+      P2HItemStatus.bermasalah => '✕',
+    };
+    final statusLabel = switch (status) {
+      P2HItemStatus.belum => 'belum',
+      P2HItemStatus.aman => 'aman',
+      P2HItemStatus.bermasalah => 'masalah',
+    };
+    final statusColor = switch (status) {
+      P2HItemStatus.belum => Colors.grey,
+      P2HItemStatus.aman => const Color(0xFF0EAE7A),
+      P2HItemStatus.bermasalah => const Color(0xFFD92D20),
+    };
+
+    return InkWell(
+      onTap: () => _toggleItem(item),
+      borderRadius: BorderRadius.circular(11),
+      child: Container(
+        decoration: BoxDecoration(
+          color: bgColor,
+          border: Border.all(color: borderColor, width: 1),
+          borderRadius: BorderRadius.circular(11),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              item,
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 14,
+                color: Color(0xFF1B2A4A),
+                height: 1.3,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '$statusIcon ',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: statusColor,
+                  ),
+                ),
+                Text(
+                  statusLabel,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: statusColor,
+                  ),
+                ),
+              ],
             ),
           ],
         ),
