@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:ptba_mdt/app/providers.dart';
 import 'package:ptba_mdt/app/routes.dart';
 import 'package:ptba_mdt/features/shift/shift_controller.dart';
 import 'package:ptba_mdt/shared/utils/display_helpers.dart';
@@ -51,15 +52,35 @@ class _MainActivityPageState extends ConsumerState<MainActivityPage> {
   }
 
   void _computeElapsed() {
-    final startedAt =
-        ref.read(shiftControllerProvider).currentActivityStartedAt;
+    final startedAt = ref
+        .read(shiftControllerProvider)
+        .currentActivityStartedAt;
     if (startedAt == null) {
       setState(() => _elapsedSeconds = 0);
       return;
     }
-    final diff =
-        DateTime.now().difference(DateTime.parse(startedAt)).inSeconds;
+    final diff = DateTime.now().difference(DateTime.parse(startedAt)).inSeconds;
     setState(() => _elapsedSeconds = diff < 0 ? 0 : diff);
+  }
+
+  void _trackInteraction(
+    String action, {
+    Map<String, Object?> metadata = const {},
+  }) {
+    final shiftState = ref.read(shiftControllerProvider);
+    final session = shiftState.shiftSession;
+
+    unawaited(
+      ref
+          .read(operatorActivityApiProvider)
+          .postInteraction(
+            action: action,
+            shiftSessionId: session?.shiftSessionId,
+            unitId: session?.unitId,
+            operatorId: session?.operatorId,
+            metadata: metadata,
+          ),
+    );
   }
 
   // ─── Activity switching ───────────────────────────────────────────────
@@ -68,14 +89,40 @@ class _MainActivityPageState extends ConsumerState<MainActivityPage> {
     if (_isSwitching) return;
 
     final shiftState = ref.read(shiftControllerProvider);
+    _trackInteraction(
+      'main_category_tapped',
+      metadata: {
+        'category': category,
+        'currentSubtype': shiftState.currentSubtype,
+      },
+    );
+
     final selectedSubtype = await SubActivitySheet.show(
       context,
       category: category,
       currentSubtype: shiftState.currentSubtype,
     );
 
-    if (!mounted || selectedSubtype == null) return;
-    if (selectedSubtype == shiftState.currentSubtype) return;
+    if (!mounted) return;
+    if (selectedSubtype == null) {
+      _trackInteraction(
+        'subtype_sheet_dismissed',
+        metadata: {'category': category},
+      );
+      return;
+    }
+    if (selectedSubtype == shiftState.currentSubtype) {
+      _trackInteraction(
+        'same_subtype_tapped',
+        metadata: {'category': category, 'subtype': selectedSubtype},
+      );
+      return;
+    }
+
+    _trackInteraction(
+      'subtype_selected',
+      metadata: {'category': category, 'subtype': selectedSubtype},
+    );
 
     if (selectedSubtype == 'loading') {
       await _handleCodeInput(category, selectedSubtype, isLoading: true);
@@ -91,8 +138,26 @@ class _MainActivityPageState extends ConsumerState<MainActivityPage> {
     String subtype, {
     required bool isLoading,
   }) async {
+    _trackInteraction(
+      'code_modal_opened',
+      metadata: {'category': category, 'subtype': subtype},
+    );
+
     final code = await CodeInputModal.show(context, subtype);
-    if (!mounted || code == null) return;
+    if (!mounted) return;
+    if (code == null) {
+      _trackInteraction(
+        'code_modal_cancelled',
+        metadata: {'category': category, 'subtype': subtype},
+      );
+      return;
+    }
+
+    _trackInteraction(
+      'code_modal_submitted',
+      metadata: {'category': category, 'subtype': subtype},
+    );
+
     await _doSwitch(
       newCategory: category,
       newSubtype: subtype,
@@ -124,8 +189,7 @@ class _MainActivityPageState extends ConsumerState<MainActivityPage> {
         final error = ref.read(shiftControllerProvider).error;
         if (error != null) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-                content: Text(error), behavior: SnackBarBehavior.floating),
+            SnackBar(content: Text(error), behavior: SnackBarBehavior.floating),
           );
         }
       }
@@ -137,9 +201,16 @@ class _MainActivityPageState extends ConsumerState<MainActivityPage> {
   Future<void> _onEndShiftTap() async {
     final session = ref.read(shiftControllerProvider).shiftSession;
     if (session == null) return;
-    final hmEnd =
-        await EndShiftModal.show(context, hmStart: session.hmStart);
-    if (!mounted || hmEnd == null) return;
+    _trackInteraction('end_shift_modal_opened');
+    final hmEnd = await EndShiftModal.show(context, hmStart: session.hmStart);
+    if (!mounted) return;
+    if (hmEnd == null) {
+      _trackInteraction('end_shift_modal_cancelled');
+      return;
+    }
+
+    _trackInteraction('end_shift_confirmed', metadata: {'hmEnd': hmEnd});
+
     final success = await ref
         .read(shiftControllerProvider.notifier)
         .endShift(hmEnd: hmEnd);
@@ -148,8 +219,10 @@ class _MainActivityPageState extends ConsumerState<MainActivityPage> {
     }
   }
 
-  void _onTimesheetTap() =>
-      Navigator.pushNamed(context, AppRoutes.timesheet);
+  void _onTimesheetTap() {
+    _trackInteraction('timesheet_opened_from_main');
+    Navigator.pushNamed(context, AppRoutes.timesheet);
+  }
 
   // ─── Build ────────────────────────────────────────────────────────────
 
@@ -159,13 +232,13 @@ class _MainActivityPageState extends ConsumerState<MainActivityPage> {
     final session = shiftState.shiftSession;
 
     if (session == null) {
-      return const Scaffold(
-          body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     final activityColor = categoryColor(shiftState.currentCategory);
-    final subtypeLabel =
-        subtypeDisplayLabel(shiftState.currentSubtype).toUpperCase();
+    final subtypeLabel = subtypeDisplayLabel(
+      shiftState.currentSubtype,
+    ).toUpperCase();
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -218,8 +291,11 @@ class _MainActivityPageState extends ConsumerState<MainActivityPage> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                Icon(Icons.history_rounded,
-                    size: 22, color: Colors.grey.shade600),
+                Icon(
+                  Icons.history_rounded,
+                  size: 22,
+                  color: Colors.grey.shade600,
+                ),
               ],
             ),
           ),
@@ -227,8 +303,11 @@ class _MainActivityPageState extends ConsumerState<MainActivityPage> {
           // AKHIRI SHIFT
           TextButton.icon(
             onPressed: _onEndShiftTap,
-            icon: const Icon(Icons.logout_rounded,
-                size: 20, color: Color(0xFFE63946)),
+            icon: const Icon(
+              Icons.logout_rounded,
+              size: 20,
+              color: Color(0xFFE63946),
+            ),
             label: const Text(
               'AKHIRI SHIFT',
               style: TextStyle(
@@ -240,8 +319,7 @@ class _MainActivityPageState extends ConsumerState<MainActivityPage> {
               ),
             ),
             style: TextButton.styleFrom(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               minimumSize: Size.zero,
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
@@ -309,7 +387,9 @@ class _MainActivityPageState extends ConsumerState<MainActivityPage> {
               const SizedBox(height: 14),
               Container(
                 padding: const EdgeInsets.symmetric(
-                    horizontal: 16, vertical: 7),
+                  horizontal: 16,
+                  vertical: 7,
+                ),
                 decoration: BoxDecoration(
                   color: activityColor.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(20),
@@ -317,8 +397,7 @@ class _MainActivityPageState extends ConsumerState<MainActivityPage> {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.qr_code_rounded,
-                        size: 16, color: activityColor),
+                    Icon(Icons.qr_code_rounded, size: 16, color: activityColor),
                     const SizedBox(width: 8),
                     Text(
                       loaderCode != null
@@ -409,9 +488,7 @@ class _CategoryTile extends StatelessWidget {
           fit: StackFit.expand,
           children: [
             // Base color
-            ColoredBox(
-              color: enabled ? color : color.withValues(alpha: 0.65),
-            ),
+            ColoredBox(color: enabled ? color : color.withValues(alpha: 0.65)),
             // Label
             Center(
               child: Text(

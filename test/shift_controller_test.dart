@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:ptba_mdt/app/providers.dart';
 import 'package:ptba_mdt/features/shift/shift_controller.dart';
 import 'package:ptba_mdt/features/shift/shift_state.dart';
 
@@ -10,14 +11,17 @@ void main() {
   late ProviderContainer container;
   late MockShiftRepository mockShiftRepo;
   late MockActivityEventRepository mockEventRepo;
+  late MockOperatorActivityApi mockOperatorActivityApi;
 
   setUp(() {
     mockShiftRepo = MockShiftRepository();
     mockEventRepo = MockActivityEventRepository();
+    mockOperatorActivityApi = MockOperatorActivityApi();
     container = ProviderContainer(
       overrides: [
         shiftRepositoryProvider.overrideWithValue(mockShiftRepo),
         activityEventRepositoryProvider.overrideWithValue(mockEventRepo),
+        operatorActivityApiProvider.overrideWithValue(mockOperatorActivityApi),
       ],
     );
   });
@@ -152,6 +156,22 @@ void main() {
       for (final event in events) {
         expect(event.shiftSessionId, session.shiftSessionId);
       }
+    });
+
+    test('posts start shift payload to operator API', () async {
+      await readNotifier().startShift(
+        unitId: 'HD-001',
+        operatorId: 'OP-001',
+        hmStart: 1234.5,
+      );
+
+      expect(mockOperatorActivityApi.calls, hasLength(1));
+      expect(mockOperatorActivityApi.calls.first.action, 'startShift');
+      expect(mockOperatorActivityApi.calls.first.payload, {
+        'unitId': 'HD-001',
+        'operatorId': 'OP-001',
+        'hmStart': 1234.5,
+      });
     });
   });
 
@@ -349,6 +369,26 @@ void main() {
       final afterSwitch = readState().currentActivityStartedAt;
       expect(afterSwitch, isNot(beforeSwitch));
     });
+
+    test('posts switch activity payload to operator API', () async {
+      await startShiftFirst();
+      final shiftSessionId = readState().shiftSession!.shiftSessionId;
+
+      await readNotifier().switchActivity(
+        newCategory: 'operation',
+        newSubtype: 'hauling',
+        haulingCode: 'HL-088',
+      );
+
+      expect(mockOperatorActivityApi.calls.last.action, 'switchActivity');
+      expect(mockOperatorActivityApi.calls.last.payload, {
+        'shiftSessionId': shiftSessionId,
+        'nextActivityCategory': 'operation',
+        'nextActivitySubtype': 'hauling',
+        'loaderCode': null,
+        'haulingCode': 'HL-088',
+      });
+    });
   });
 
   // ═════════════════════════════════════════════════════════════════════
@@ -403,8 +443,10 @@ void main() {
       final stateAfter = readState();
       expect(stateAfter.currentCategory, stateBefore.currentCategory);
       expect(stateAfter.currentSubtype, stateBefore.currentSubtype);
-      expect(stateAfter.currentActivityStartedAt,
-          stateBefore.currentActivityStartedAt);
+      expect(
+        stateAfter.currentActivityStartedAt,
+        stateBefore.currentActivityStartedAt,
+      );
     });
   });
 
@@ -468,11 +510,11 @@ void main() {
       expect(names, [
         'SHIFT_STARTED',
         'ACTIVITY_STARTED', // changeShift
-        'ACTIVITY_ENDED',   // end changeShift
+        'ACTIVITY_ENDED', // end changeShift
         'ACTIVITY_STARTED', // loading
-        'ACTIVITY_ENDED',   // end loading
+        'ACTIVITY_ENDED', // end loading
         'ACTIVITY_STARTED', // hauling
-        'ACTIVITY_ENDED',   // end hauling
+        'ACTIVITY_ENDED', // end hauling
         'ACTIVITY_STARTED', // dumping
       ]);
     });
@@ -522,14 +564,16 @@ void main() {
       // Validate: no two consecutive ACTIVITY_STARTED without ACTIVITY_ENDED
       String? lastEvent;
       for (final e in events) {
-        if (e.eventName == 'ACTIVITY_STARTED' && lastEvent == 'ACTIVITY_STARTED') {
+        if (e.eventName == 'ACTIVITY_STARTED' &&
+            lastEvent == 'ACTIVITY_STARTED') {
           // This is only valid right after SHIFT_STARTED
           fail('Two consecutive ACTIVITY_STARTED without ACTIVITY_ENDED');
         }
         if (e.eventName == 'ACTIVITY_ENDED' && lastEvent == 'ACTIVITY_ENDED') {
           fail('Two consecutive ACTIVITY_ENDED');
         }
-        if (e.eventName == 'ACTIVITY_STARTED' || e.eventName == 'ACTIVITY_ENDED') {
+        if (e.eventName == 'ACTIVITY_STARTED' ||
+            e.eventName == 'ACTIVITY_ENDED') {
           lastEvent = e.eventName;
         }
       }
@@ -675,8 +719,11 @@ void main() {
       for (int i = 1; i < events.length; i++) {
         final prev = DateTime.parse(events[i - 1].occurredAt);
         final curr = DateTime.parse(events[i].occurredAt);
-        expect(curr.isAfter(prev) || curr.isAtSameMomentAs(prev), isTrue,
-            reason: 'Event $i timestamp must be >= event ${i - 1}');
+        expect(
+          curr.isAfter(prev) || curr.isAtSameMomentAs(prev),
+          isTrue,
+          reason: 'Event $i timestamp must be >= event ${i - 1}',
+        );
       }
     });
 
@@ -732,8 +779,10 @@ void main() {
       await readNotifier().endShift(hmEnd: 1050.0);
 
       final events = mockEventRepo.storedEvents;
-      expect(events[eventsBefore].occurredAt,
-          events[eventsBefore + 1].occurredAt);
+      expect(
+        events[eventsBefore].occurredAt,
+        events[eventsBefore + 1].occurredAt,
+      );
     });
 
     test('ACTIVITY_ENDED carries the current activity info', () async {
@@ -803,10 +852,16 @@ void main() {
       final success = await readNotifier().endShift(hmEnd: 999.0);
 
       expect(success, isFalse);
-      expect(mockEventRepo.storedEvents.length, eventsBefore,
-          reason: 'No events should be generated');
-      expect(readState().isActive, isTrue,
-          reason: 'Shift should remain active');
+      expect(
+        mockEventRepo.storedEvents.length,
+        eventsBefore,
+        reason: 'No events should be generated',
+      );
+      expect(
+        readState().isActive,
+        isTrue,
+        reason: 'Shift should remain active',
+      );
     });
 
     test('accepts hmEnd == hmStart', () async {
@@ -851,8 +906,7 @@ void main() {
       // End shift
       await readNotifier().endShift(hmEnd: 1050.0);
 
-      final names =
-          mockEventRepo.storedEvents.map((e) => e.eventName).toList();
+      final names = mockEventRepo.storedEvents.map((e) => e.eventName).toList();
       expect(names, [
         'SHIFT_STARTED',
         'ACTIVITY_STARTED', // changeShift
@@ -892,6 +946,19 @@ void main() {
 
       final result = await readNotifier().endShift(hmEnd: 1100.0);
       expect(result, isFalse);
+    });
+
+    test('posts end shift payload to operator API', () async {
+      await startShiftFirst();
+      final shiftSessionId = readState().shiftSession!.shiftSessionId;
+
+      await readNotifier().endShift(hmEnd: 1050.0);
+
+      expect(mockOperatorActivityApi.calls.last.action, 'endShift');
+      expect(mockOperatorActivityApi.calls.last.payload, {
+        'shiftSessionId': shiftSessionId,
+        'hmEnd': 1050.0,
+      });
     });
   });
 

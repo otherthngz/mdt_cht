@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import 'package:ptba_mdt/app/providers.dart';
 import 'package:ptba_mdt/app/routes.dart';
 import 'package:ptba_mdt/app/theme/theme.dart';
 import 'package:ptba_mdt/features/start_shift/start_shift_form_controller.dart';
@@ -39,8 +42,10 @@ class _StartShiftStep1PageState extends ConsumerState<StartShiftStep1Page>
       vsync: this,
       duration: const Duration(milliseconds: 500),
     );
-    _fadeAnimation =
-        CurvedAnimation(parent: _fadeController, curve: Curves.easeOut);
+    _fadeAnimation = CurvedAnimation(
+      parent: _fadeController,
+      curve: Curves.easeOut,
+    );
     _fadeController.forward();
   }
 
@@ -55,10 +60,23 @@ class _StartShiftStep1PageState extends ConsumerState<StartShiftStep1Page>
   void _onLanjut() {
     if (!_formKey.currentState!.validate()) return;
 
-    ref.read(startShiftFormControllerProvider.notifier).setStep1(
-          unitId: _unitIdController.text.trim(),
-          operatorId: _operatorIdController.text.trim(),
-        );
+    final unitId = _unitIdController.text.trim();
+    final operatorId = _operatorIdController.text.trim();
+
+    ref
+        .read(startShiftFormControllerProvider.notifier)
+        .setStep1(unitId: unitId, operatorId: operatorId);
+
+    unawaited(
+      ref
+          .read(operatorActivityApiProvider)
+          .postInteraction(
+            action: 'start_shift_step1_submitted',
+            unitId: unitId,
+            operatorId: operatorId,
+            metadata: const {},
+          ),
+    );
 
     Navigator.pushNamed(context, AppRoutes.startShiftStep2);
   }
@@ -84,13 +102,12 @@ class _StartShiftStep1PageState extends ConsumerState<StartShiftStep1Page>
                     opacity: _fadeAnimation,
                     child: SingleChildScrollView(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 24, vertical: 32),
+                        horizontal: 24,
+                        vertical: 32,
+                      ),
                       child: SizedBox(
                         width: 520,
-                        child: Form(
-                          key: _formKey,
-                          child: _buildCard(),
-                        ),
+                        child: Form(key: _formKey, child: _buildCard()),
                       ),
                     ),
                   ),
@@ -223,59 +240,58 @@ class _StartShiftStep1PageState extends ConsumerState<StartShiftStep1Page>
   // ─── Shared Styles ───────────────────────────────────────────────────
 
   InputDecoration _inputDecoration(String hint) => InputDecoration(
-        hintText: hint,
-        filled: true,
-        fillColor: Colors.white,
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-        hintStyle: TextStyle(
-          fontFamily: 'Inter',
-          fontSize: 16,
-          fontWeight: FontWeight.w400,
-          color: MdtTheme.textHint,
-        ),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFFDDE1E6)),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFFDDE1E6)),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: MdtTheme.primaryBlue, width: 1.5),
-        ),
-        errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFFE74C3C), width: 1.5),
-        ),
-        focusedErrorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFFE74C3C), width: 1.5),
-        ),
-      );
+    hintText: hint,
+    filled: true,
+    fillColor: Colors.white,
+    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+    hintStyle: TextStyle(
+      fontFamily: 'Inter',
+      fontSize: 16,
+      fontWeight: FontWeight.w400,
+      color: MdtTheme.textHint,
+    ),
+    border: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: const BorderSide(color: Color(0xFFDDE1E6)),
+    ),
+    enabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: const BorderSide(color: Color(0xFFDDE1E6)),
+    ),
+    focusedBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: BorderSide(color: MdtTheme.primaryBlue, width: 1.5),
+    ),
+    errorBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: const BorderSide(color: Color(0xFFE74C3C), width: 1.5),
+    ),
+    focusedErrorBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: const BorderSide(color: Color(0xFFE74C3C), width: 1.5),
+    ),
+  );
 
   TextStyle get _inputTextStyle => TextStyle(
-        fontFamily: 'Inter',
-        fontSize: 16,
-        fontWeight: FontWeight.w400,
-        color: MdtTheme.textPrimary,
-      );
+    fontFamily: 'Inter',
+    fontSize: 16,
+    fontWeight: FontWeight.w400,
+    color: MdtTheme.textPrimary,
+  );
 
   ButtonStyle get _primaryButtonStyle => ElevatedButton.styleFrom(
-        backgroundColor: MdtTheme.primaryColor,
-        foregroundColor: Colors.white,
-        disabledBackgroundColor: MdtTheme.primaryColor.withValues(alpha: 0.6),
-        elevation: 0,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        textStyle: const TextStyle(
-          fontFamily: 'Inter',
-          fontSize: 16,
-          fontWeight: FontWeight.w600,
-          letterSpacing: 0.3,
-        ),
-      );
+    backgroundColor: MdtTheme.primaryColor,
+    foregroundColor: Colors.white,
+    disabledBackgroundColor: MdtTheme.primaryColor.withValues(alpha: 0.6),
+    elevation: 0,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    textStyle: const TextStyle(
+      fontFamily: 'Inter',
+      fontSize: 16,
+      fontWeight: FontWeight.w600,
+      letterSpacing: 0.3,
+    ),
+  );
 }
 
 // ─── Shared subwidgets ───────────────────────────────────────────────────────
@@ -298,9 +314,7 @@ class _StepIndicator extends StatelessWidget {
             width: isActive ? 24 : 8,
             height: 8,
             decoration: BoxDecoration(
-              color: isActive
-                  ? MdtTheme.primaryBlue
-                  : const Color(0xFFDDE1E6),
+              color: isActive ? MdtTheme.primaryBlue : const Color(0xFFDDE1E6),
               borderRadius: BorderRadius.circular(4),
             ),
           ),

@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:ptba_mdt/app/providers.dart';
 import 'package:ptba_mdt/app/routes.dart';
 import 'package:ptba_mdt/app/theme/theme.dart';
 import 'package:ptba_mdt/features/shift/shift_controller.dart';
@@ -38,8 +41,10 @@ class _StartShiftStep2PageState extends ConsumerState<StartShiftStep2Page>
       vsync: this,
       duration: const Duration(milliseconds: 400),
     );
-    _fadeAnimation =
-        CurvedAnimation(parent: _fadeController, curve: Curves.easeOut);
+    _fadeAnimation = CurvedAnimation(
+      parent: _fadeController,
+      curve: Curves.easeOut,
+    );
     _fadeController.forward();
 
     // Trigger last-HM fetch after the first frame so the provider is
@@ -62,10 +67,21 @@ class _StartShiftStep2PageState extends ConsumerState<StartShiftStep2Page>
     if (!_formKey.currentState!.validate()) return;
     if (_isSubmitting) return;
 
-    setState(() => _isSubmitting = true);
-
     final formState = ref.read(startShiftFormControllerProvider);
     final hmStart = double.parse(_hmStartController.text.trim());
+
+    unawaited(
+      ref
+          .read(operatorActivityApiProvider)
+          .postInteraction(
+            action: 'start_shift_step2_submitted',
+            unitId: formState.unitId,
+            operatorId: formState.operatorId,
+            metadata: {'hmStart': hmStart},
+          ),
+    );
+
+    setState(() => _isSubmitting = true);
 
     final success = await ref
         .read(shiftControllerProvider.notifier)
@@ -107,8 +123,10 @@ class _StartShiftStep2PageState extends ConsumerState<StartShiftStep2Page>
     final formState = ref.watch(startShiftFormControllerProvider);
 
     // Prefill the HM field once the async fetch resolves.
-    ref.listen<StartShiftFormState>(startShiftFormControllerProvider,
-        (prev, next) {
+    ref.listen<StartShiftFormState>(startShiftFormControllerProvider, (
+      prev,
+      next,
+    ) {
       if (prev?.isLoadingHm == true &&
           !next.isLoadingHm &&
           next.lastHm != null &&
@@ -136,7 +154,9 @@ class _StartShiftStep2PageState extends ConsumerState<StartShiftStep2Page>
                     opacity: _fadeAnimation,
                     child: SingleChildScrollView(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 24, vertical: 32),
+                        horizontal: 24,
+                        vertical: 32,
+                      ),
                       child: SizedBox(
                         width: 520,
                         child: Form(
@@ -194,13 +214,13 @@ class _StartShiftStep2PageState extends ConsumerState<StartShiftStep2Page>
           children: [
             // ── Unit badge ──
             Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
               decoration: BoxDecoration(
                 color: MdtTheme.primaryBlue.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                    color: MdtTheme.primaryBlue.withValues(alpha: 0.25)),
+                  color: MdtTheme.primaryBlue.withValues(alpha: 0.25),
+                ),
               ),
               child: Text(
                 'NOMOR UNIT : ${formState.unitId}',
@@ -237,8 +257,9 @@ class _StartShiftStep2PageState extends ConsumerState<StartShiftStep2Page>
             TextFormField(
               controller: _hmStartController,
               decoration: _hmInputDecoration(formState.isLoadingHm),
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
               inputFormatters: [
                 FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,1}$')),
               ],
@@ -265,15 +286,32 @@ class _StartShiftStep2PageState extends ConsumerState<StartShiftStep2Page>
                   child: SizedBox(
                     height: 52,
                     child: OutlinedButton.icon(
-                      onPressed:
-                          _isSubmitting ? null : () => Navigator.pop(context),
+                      onPressed: _isSubmitting
+                          ? null
+                          : () {
+                              final formState = ref.read(
+                                startShiftFormControllerProvider,
+                              );
+                              unawaited(
+                                ref
+                                    .read(operatorActivityApiProvider)
+                                    .postInteraction(
+                                      action: 'start_shift_step2_back_tapped',
+                                      unitId: formState.unitId,
+                                      operatorId: formState.operatorId,
+                                      metadata: const {},
+                                    ),
+                              );
+                              Navigator.pop(context);
+                            },
                       icon: const Icon(Icons.arrow_back_rounded, size: 18),
                       label: const Text('Kembali'),
                       style: OutlinedButton.styleFrom(
                         side: const BorderSide(color: Color(0xFFDDE1E6)),
                         foregroundColor: MdtTheme.textSecondary,
                         shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12)),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                         textStyle: const TextStyle(
                           fontFamily: 'Inter',
                           fontSize: 16,
@@ -324,72 +362,73 @@ class _StartShiftStep2PageState extends ConsumerState<StartShiftStep2Page>
   // ─── Shared Styles ──────────────────────────────────────────────────────
 
   InputDecoration _hmInputDecoration(bool isLoadingHm) => InputDecoration(
-        hintText: isLoadingHm ? 'Memuat hourmeter terakhir...' : 'Masukan Hourmeter',
-        filled: true,
-        fillColor: Colors.white,
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-        hintStyle: TextStyle(
-          fontFamily: 'Inter',
-          fontSize: 16,
-          fontWeight: FontWeight.w400,
-          color: MdtTheme.textHint,
-        ),
-        suffixIcon: isLoadingHm
-            ? const Padding(
-                padding: EdgeInsets.all(14),
-                child: SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: MdtTheme.primaryBlue,
-                  ),
-                ),
-              )
-            : null,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFFDDE1E6)),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFFDDE1E6)),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: MdtTheme.primaryBlue, width: 1.5),
-        ),
-        errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFFE74C3C), width: 1.5),
-        ),
-        focusedErrorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFFE74C3C), width: 1.5),
-        ),
-      );
+    hintText: isLoadingHm
+        ? 'Memuat hourmeter terakhir...'
+        : 'Masukan Hourmeter',
+    filled: true,
+    fillColor: Colors.white,
+    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+    hintStyle: TextStyle(
+      fontFamily: 'Inter',
+      fontSize: 16,
+      fontWeight: FontWeight.w400,
+      color: MdtTheme.textHint,
+    ),
+    suffixIcon: isLoadingHm
+        ? const Padding(
+            padding: EdgeInsets.all(14),
+            child: SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: MdtTheme.primaryBlue,
+              ),
+            ),
+          )
+        : null,
+    border: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: const BorderSide(color: Color(0xFFDDE1E6)),
+    ),
+    enabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: const BorderSide(color: Color(0xFFDDE1E6)),
+    ),
+    focusedBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: BorderSide(color: MdtTheme.primaryBlue, width: 1.5),
+    ),
+    errorBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: const BorderSide(color: Color(0xFFE74C3C), width: 1.5),
+    ),
+    focusedErrorBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: const BorderSide(color: Color(0xFFE74C3C), width: 1.5),
+    ),
+  );
 
   TextStyle get _inputTextStyle => TextStyle(
-        fontFamily: 'Inter',
-        fontSize: 16,
-        fontWeight: FontWeight.w400,
-        color: MdtTheme.textPrimary,
-      );
+    fontFamily: 'Inter',
+    fontSize: 16,
+    fontWeight: FontWeight.w400,
+    color: MdtTheme.textPrimary,
+  );
 
   ButtonStyle get _primaryButtonStyle => ElevatedButton.styleFrom(
-        backgroundColor: MdtTheme.primaryColor,
-        foregroundColor: Colors.white,
-        disabledBackgroundColor: MdtTheme.primaryColor.withValues(alpha: 0.6),
-        elevation: 0,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        textStyle: const TextStyle(
-          fontFamily: 'Inter',
-          fontSize: 16,
-          fontWeight: FontWeight.w600,
-          letterSpacing: 0.3,
-        ),
-      );
+    backgroundColor: MdtTheme.primaryColor,
+    foregroundColor: Colors.white,
+    disabledBackgroundColor: MdtTheme.primaryColor.withValues(alpha: 0.6),
+    elevation: 0,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    textStyle: const TextStyle(
+      fontFamily: 'Inter',
+      fontSize: 16,
+      fontWeight: FontWeight.w600,
+      letterSpacing: 0.3,
+    ),
+  );
 }
 
 // ─── Shared subwidgets ───────────────────────────────────────────────────────
@@ -411,8 +450,7 @@ class _StepIndicator extends StatelessWidget {
             width: isActive ? 24 : 8,
             height: 8,
             decoration: BoxDecoration(
-              color:
-                  isActive ? MdtTheme.primaryBlue : const Color(0xFFDDE1E6),
+              color: isActive ? MdtTheme.primaryBlue : const Color(0xFFDDE1E6),
               borderRadius: BorderRadius.circular(4),
             ),
           ),

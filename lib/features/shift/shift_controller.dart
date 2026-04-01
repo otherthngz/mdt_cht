@@ -1,11 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
+import 'package:ptba_mdt/app/providers.dart';
 import 'package:ptba_mdt/domain/models/shift_session.dart';
 import 'package:ptba_mdt/domain/models/activity_event.dart';
 import 'package:ptba_mdt/domain/models/enums.dart';
 import 'package:ptba_mdt/domain/repositories/shift_repository.dart';
 import 'package:ptba_mdt/domain/repositories/activity_event_repository.dart';
+import 'package:ptba_mdt/domain/services/operator_activity_api.dart';
 import 'package:ptba_mdt/features/shift/shift_state.dart';
 
 const _uuid = Uuid();
@@ -19,12 +23,23 @@ const _uuid = Uuid();
 class ShiftController extends Notifier<ShiftState> {
   late ShiftRepository _shiftRepo;
   late ActivityEventRepository _eventRepo;
+  late OperatorActivityApi _operatorActivityApi;
 
   @override
   ShiftState build() {
     _shiftRepo = ref.read(shiftRepositoryProvider);
     _eventRepo = ref.read(activityEventRepositoryProvider);
+    _operatorActivityApi = ref.read(operatorActivityApiProvider);
     return const ShiftState.initial();
+  }
+
+  void _dispatchRemote(Future<void> Function() request) {
+    // Remote sync must never break the local shift flow.
+    unawaited(() async {
+      try {
+        await request();
+      } catch (_) {}
+    }());
   }
 
   /// Restore shift from Hive on app start.
@@ -50,8 +65,9 @@ class ShiftController extends Notifier<ShiftState> {
       }
 
       // Restore current activity from events.
-      final activeActivity =
-          await _eventRepo.getCurrentActiveActivity(session.shiftSessionId);
+      final activeActivity = await _eventRepo.getCurrentActiveActivity(
+        session.shiftSessionId,
+      );
 
       state = ShiftState(
         shiftSession: session,
@@ -133,6 +149,14 @@ class ShiftController extends Notifier<ShiftState> {
         currentActivityStartedAt: now,
       );
 
+      _dispatchRemote(() {
+        return _operatorActivityApi.postStartShift(
+          unitId: unitId,
+          operatorId: operatorId,
+          hmStart: hmStart,
+        );
+      });
+
       return true;
     } catch (e) {
       state = state.copyWith(isLoading: false, error: e.toString());
@@ -206,6 +230,16 @@ class ShiftController extends Notifier<ShiftState> {
         currentLoaderCode: loaderCode,
         currentHaulingCode: haulingCode,
       );
+
+      _dispatchRemote(() {
+        return _operatorActivityApi.postSwitchActivity(
+          shiftSessionId: session.shiftSessionId,
+          nextActivityCategory: newCategory,
+          nextActivitySubtype: newSubtype,
+          loaderCode: loaderCode,
+          haulingCode: haulingCode,
+        );
+      });
 
       return true;
     } catch (e) {
@@ -285,6 +319,13 @@ class ShiftController extends Notifier<ShiftState> {
         isEnded: true,
       );
 
+      _dispatchRemote(() {
+        return _operatorActivityApi.postEndShift(
+          shiftSessionId: session.shiftSessionId,
+          hmEnd: hmEnd,
+        );
+      });
+
       return true;
     } catch (e) {
       state = state.copyWith(error: e.toString());
@@ -316,13 +357,15 @@ final shiftRepositoryProvider = Provider<ShiftRepository>((ref) {
 });
 
 /// ActivityEventRepository provider.
-final activityEventRepositoryProvider =
-    Provider<ActivityEventRepository>((ref) {
+final activityEventRepositoryProvider = Provider<ActivityEventRepository>((
+  ref,
+) {
   throw UnimplementedError(
     'activityEventRepositoryProvider must be overridden in ProviderScope',
   );
 });
 
 /// ShiftController provider.
-final shiftControllerProvider =
-    NotifierProvider<ShiftController, ShiftState>(ShiftController.new);
+final shiftControllerProvider = NotifierProvider<ShiftController, ShiftState>(
+  ShiftController.new,
+);

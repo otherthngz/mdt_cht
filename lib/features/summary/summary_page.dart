@@ -1,23 +1,65 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
+import 'package:ptba_mdt/app/providers.dart';
 import 'package:ptba_mdt/app/routes.dart';
-import 'package:ptba_mdt/features/shift/shift_controller.dart';
-import 'package:ptba_mdt/features/summary/summary_provider.dart';
 import 'package:ptba_mdt/domain/models/shift_session.dart';
 import 'package:ptba_mdt/domain/models/shift_summary.dart';
+import 'package:ptba_mdt/features/shift/shift_controller.dart';
+import 'package:ptba_mdt/features/summary/summary_provider.dart';
 import 'package:ptba_mdt/shared/utils/display_helpers.dart';
-import 'package:ptba_mdt/shared/widgets/status_bar.dart';
 
-/// SummaryPage — per 08_COMPONENT_SPEC.md §4.4.
+/// SummaryPage — reworked to match the compact summary card reference.
 ///
-/// Purpose: Display shift metrics
-/// Contains: Shift info section, SummaryMetricCards, PA/UA metrics,
-///           SecondaryActionButton (View Timesheet),
-///           PrimaryActionButton (Start New Shift)
-/// Data Source: Derived ShiftSummary
+/// Keeps the existing app data, but presents it in a simpler 2-row summary
+/// layout with a centered white card and a single primary action.
 class SummaryPage extends ConsumerWidget {
   const SummaryPage({super.key});
+
+  void _openTimesheet(
+    BuildContext context,
+    WidgetRef ref,
+    ShiftSession session,
+  ) {
+    unawaited(
+      ref
+          .read(operatorActivityApiProvider)
+          .postInteraction(
+            action: 'timesheet_opened_from_summary',
+            shiftSessionId: session.shiftSessionId,
+            unitId: session.unitId,
+            operatorId: session.operatorId,
+            metadata: const {},
+          ),
+    );
+    Navigator.pushNamed(context, AppRoutes.timesheet);
+  }
+
+  Future<void> _startNewShift(
+    BuildContext context,
+    WidgetRef ref,
+    ShiftSession session,
+  ) async {
+    unawaited(
+      ref
+          .read(operatorActivityApiProvider)
+          .postInteraction(
+            action: 'start_new_shift_tapped',
+            shiftSessionId: session.shiftSessionId,
+            unitId: session.unitId,
+            operatorId: session.operatorId,
+            metadata: const {},
+          ),
+    );
+
+    await ref.read(shiftControllerProvider.notifier).resetForNewShift();
+    if (context.mounted) {
+      Navigator.pushReplacementNamed(context, AppRoutes.startShift);
+    }
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -26,379 +68,364 @@ class SummaryPage extends ConsumerWidget {
     final summaryAsync = ref.watch(summaryProvider);
 
     if (session == null) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA),
+      backgroundColor: const Color(0xFFDCE3EE),
       body: SafeArea(
-        child: Column(
-          children: [
-            // ── Status Bar ──
-            StatusBar(
-              unitId: session.unitId,
-              operatorId: session.operatorId,
-            ),
-
-            // ── Main content ──
-            Expanded(
-              child: summaryAsync.when(
-                loading: () =>
-                    const Center(child: CircularProgressIndicator()),
-                error: (e, _) => Center(
-                  child: Text('Error: $e',
-                      style: const TextStyle(color: Colors.red, fontSize: 16)),
-                ),
-                data: (summary) => summary == null
-                    ? const Center(
-                        child: Text('Tidak ada data',
-                            style: TextStyle(fontSize: 16)))
-                    : _buildContent(context, ref, session, summary),
+        child: summaryAsync.when(
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (error, _) => Center(
+            child: Text(
+              'Error: $error',
+              style: const TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 16,
+                color: Color(0xFFC62828),
               ),
             ),
-          ],
+          ),
+          data: (summary) => summary == null
+              ? const Center(
+                  child: Text(
+                    'Tidak ada data ringkasan.',
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 16,
+                      color: Color(0xFF616161),
+                    ),
+                  ),
+                )
+              : _SummaryCardLayout(
+                  session: session,
+                  summary: summary,
+                  onOpenTimesheet: () => _openTimesheet(context, ref, session),
+                  onStartNewShift: () => _startNewShift(context, ref, session),
+                ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SummaryCardLayout extends StatelessWidget {
+  final ShiftSession session;
+  final ShiftSummary summary;
+  final VoidCallback onOpenTimesheet;
+  final Future<void> Function() onStartNewShift;
+
+  const _SummaryCardLayout({
+    required this.session,
+    required this.summary,
+    required this.onOpenTimesheet,
+    required this.onStartNewShift,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final isCompact = screenWidth < 640;
+    final horizontalPadding = isCompact ? 20.0 : 34.0;
+    final verticalPadding = isCompact ? 24.0 : 30.0;
+
+    final topMetrics = [
+      _MetricData(
+        label: 'Tanggal Shift',
+        value: _formatShiftDate(session.shiftDate),
+        icon: Icons.calendar_today_outlined,
+      ),
+      _MetricData(
+        label: 'Operator ID',
+        value: session.operatorId,
+        icon: Icons.person_outline_rounded,
+      ),
+      _MetricData(
+        label: 'Unit ID',
+        value: session.unitId,
+        icon: Icons.local_shipping_outlined,
+      ),
+      _MetricData(
+        label: 'HM Mulai',
+        value: summary.hmStart.toStringAsFixed(1),
+        icon: Icons.speed_rounded,
+      ),
+      _MetricData(
+        label: 'HM Akhir',
+        value: summary.hmEnd?.toStringAsFixed(1) ?? '—',
+        icon: Icons.speed_outlined,
+      ),
+    ];
+
+    final durationMetrics = [
+      _MetricData(
+        label: 'Operation',
+        value: formatElapsed(summary.totalOperationSeconds),
+        icon: Icons.access_time_rounded,
+      ),
+      _MetricData(
+        label: 'Standby',
+        value: formatElapsed(summary.totalStandbySeconds),
+        icon: Icons.access_time_rounded,
+      ),
+      _MetricData(
+        label: 'Delay',
+        value: formatElapsed(summary.totalDelaySeconds),
+        icon: Icons.access_time_rounded,
+      ),
+      _MetricData(
+        label: 'Breakdown',
+        value: formatElapsed(summary.totalBreakdownSeconds),
+        icon: Icons.access_time_rounded,
+      ),
+      _MetricData(
+        label: 'Total Shift',
+        value: formatElapsed(summary.totalShiftSeconds),
+        icon: Icons.access_time_filled_rounded,
+      ),
+    ];
+
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 32),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 920),
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: const Color(0xFFD9DEE7)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.06),
+                  blurRadius: 22,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            padding: EdgeInsets.symmetric(
+              horizontal: horizontalPadding,
+              vertical: verticalPadding,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: SvgPicture.asset(
+                          'assets/logo.svg',
+                          width: isCompact ? 132 : 160,
+                          fit: BoxFit.contain,
+                        ),
+                      ),
+                    ),
+                    _HeaderActionButton(
+                      icon: Icons.table_chart_outlined,
+                      tooltip: 'Lihat Timesheet',
+                      onTap: onOpenTimesheet,
+                    ),
+                    const SizedBox(width: 10),
+                    const _HeaderStatusIcon(
+                      icon: Icons.signal_cellular_alt_rounded,
+                    ),
+                    const SizedBox(width: 10),
+                    const _HeaderStatusIcon(icon: Icons.battery_full_rounded),
+                  ],
+                ),
+                SizedBox(height: isCompact ? 28 : 38),
+                Text(
+                  'Ringkasan Pekerjaan',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: isCompact ? 28 : 32,
+                    fontWeight: FontWeight.w700,
+                    color: const Color(0xFF14171F),
+                    height: 1.05,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  'Data di bawah menggunakan hasil aktivitas operator pada shift yang baru selesai.',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 14,
+                    fontWeight: FontWeight.w400,
+                    color: Color(0xFF6D7280),
+                    height: 1.35,
+                  ),
+                ),
+                SizedBox(height: isCompact ? 24 : 30),
+                _MetricGrid(items: topMetrics),
+                const SizedBox(height: 20),
+                _MetricGrid(items: durationMetrics),
+                const SizedBox(height: 22),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    _InsightChip(
+                      label: 'Delta HM',
+                      value: summary.totalDeltaHm?.toStringAsFixed(1) ?? '—',
+                    ),
+                    _InsightChip(
+                      label: 'PA',
+                      value: summary.pa != null
+                          ? '${summary.pa!.toStringAsFixed(1)}%'
+                          : '—',
+                    ),
+                    _InsightChip(
+                      label: 'UA',
+                      value: summary.ua != null
+                          ? '${summary.ua!.toStringAsFixed(1)}%'
+                          : '—',
+                    ),
+                    _InsightChip(
+                      label: 'Loading',
+                      value: '${summary.loadingCountTotal} trip',
+                    ),
+                    _InsightChip(
+                      label: 'Hauling',
+                      value: '${summary.haulingCountTotal} trip',
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: onOpenTimesheet,
+                    icon: const Icon(Icons.open_in_new_rounded, size: 18),
+                    label: const Text('Lihat Timesheet Detail'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: const Color(0xFF344689),
+                      textStyle: const TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                SizedBox(
+                  height: 52,
+                  child: ElevatedButton.icon(
+                    onPressed: onStartNewShift,
+                    icon: const Icon(Icons.login_rounded, size: 20),
+                    label: const Text('Mulai Shift Baru'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF141B33),
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      textStyle: const TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildContent(
-      BuildContext context, WidgetRef ref, ShiftSession session, ShiftSummary summary) {
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // ── Title ──
-          Row(
-            children: [
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE8F5E9),
-                  shape: BoxShape.circle,
-                  border:
-                      Border.all(color: const Color(0xFF4CAF50), width: 1.5),
-                ),
-                child: const Icon(
-                  Icons.check_circle_outline,
-                  size: 28,
-                  color: Color(0xFF2E7D32),
-                ),
-              ),
-              const SizedBox(width: 16),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Ringkasan Shift',
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.w700,
-                          color: const Color(0xFF212121),
-                        ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    'Shift telah berakhir',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: const Color(0xFF4CAF50),
-                          fontWeight: FontWeight.w500,
-                        ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 24),
-
-          // ── Shift Info Card ──
-          _ShiftInfoCard(
-            unitId: session.unitId,
-            operatorId: session.operatorId,
-            shiftDate: session.shiftDate,
-            hmStart: summary.hmStart,
-            hmEnd: summary.hmEnd,
-            totalDeltaHm: summary.totalDeltaHm,
-          ),
-          const SizedBox(height: 20),
-
-          // ── PA / UA Cards ──
-          Row(
-            children: [
-              Expanded(
-                child: _MetricCard(
-                  label: 'PA',
-                  sublabel: 'Physical Availability',
-                  value: summary.pa != null
-                      ? '${summary.pa!.toStringAsFixed(1)}%'
-                      : '—',
-                  color: const Color(0xFF1565C0),
-                  icon: Icons.verified_outlined,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: _MetricCard(
-                  label: 'UA',
-                  sublabel: 'Use of Availability',
-                  value: summary.ua != null
-                      ? '${summary.ua!.toStringAsFixed(1)}%'
-                      : '—',
-                  color: const Color(0xFF00838F),
-                  icon: Icons.speed,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-
-          // ── Category Duration Breakdown ──
-          Row(
-            children: [
-              Container(
-                width: 4,
-                height: 22,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1565C0),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Text(
-                'Rincian Durasi',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                      color: const Color(0xFF424242),
-                    ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          _DurationBar(summary: summary),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: _CategoryDurationTile(
-                  label: 'Operasi',
-                  seconds: summary.totalOperationSeconds,
-                  color: categoryColor('operation'),
-                  icon: categoryIcon('operation'),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _CategoryDurationTile(
-                  label: 'Standby',
-                  seconds: summary.totalStandbySeconds,
-                  color: categoryColor('standby'),
-                  icon: categoryIcon('standby'),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _CategoryDurationTile(
-                  label: 'Delay',
-                  seconds: summary.totalDelaySeconds,
-                  color: categoryColor('delay'),
-                  icon: categoryIcon('delay'),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _CategoryDurationTile(
-                  label: 'Breakdown',
-                  seconds: summary.totalBreakdownSeconds,
-                  color: categoryColor('breakdown'),
-                  icon: categoryIcon('breakdown'),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-
-          // ── Counts ──
-          Row(
-            children: [
-              Expanded(
-                child: _CountTile(
-                  label: 'Loading',
-                  count: summary.loadingCountTotal,
-                  icon: Icons.download_rounded,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: _CountTile(
-                  label: 'Hauling',
-                  count: summary.haulingCountTotal,
-                  icon: Icons.local_shipping,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 28),
-
-          // ── Actions ──
-          // SecondaryActionButton: View Timesheet (per §5.10)
-          OutlinedButton.icon(
-            onPressed: () {
-              Navigator.pushNamed(context, AppRoutes.timesheet);
-            },
-            icon: const Icon(Icons.table_chart_outlined),
-            label: const Text('Lihat Timesheet Detail'),
-            style: OutlinedButton.styleFrom(
-              minimumSize: const Size(double.infinity, 52),
-              side: BorderSide(color: Colors.grey.shade400),
-              foregroundColor: const Color(0xFF424242),
-              textStyle: const TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 16,
-                fontWeight: FontWeight.w500,
-              ),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-          ),
-          const SizedBox(height: 14),
-          // PrimaryActionButton: Start New Shift (per §5.9)
-          ElevatedButton.icon(
-            onPressed: () async {
-              await ref
-                  .read(shiftControllerProvider.notifier)
-                  .resetForNewShift();
-              if (context.mounted) {
-                Navigator.pushReplacementNamed(context, AppRoutes.startShift);
-              }
-            },
-            icon: const Icon(Icons.add_circle_outline),
-            label: const Text('Mulai Shift Baru'),
-            style: ElevatedButton.styleFrom(
-              minimumSize: const Size(double.infinity, 52),
-              backgroundColor: const Color(0xFF1565C0),
-              foregroundColor: Colors.white,
-              textStyle: const TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-              ),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-        ],
-      ),
-    );
+  static String _formatShiftDate(String rawDate) {
+    final parsed = DateTime.tryParse(rawDate);
+    if (parsed == null) return rawDate;
+    return formatDate(parsed);
   }
 }
 
-// ─── Subwidgets ─────────────────────────────────────────────────────────
+class _MetricGrid extends StatelessWidget {
+  final List<_MetricData> items;
 
-class _ShiftInfoCard extends StatelessWidget {
-  final String unitId;
-  final String operatorId;
-  final String shiftDate;
-  final double hmStart;
-  final double? hmEnd;
-  final double? totalDeltaHm;
-
-  const _ShiftInfoCard({
-    required this.unitId,
-    required this.operatorId,
-    required this.shiftDate,
-    required this.hmStart,
-    this.hmEnd,
-    this.totalDeltaHm,
-  });
+  const _MetricGrid({required this.items});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.grey.shade200),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          _InfoRow(label: 'Unit ID', value: unitId),
-          const SizedBox(height: 10),
-          _InfoRow(label: 'Operator ID', value: operatorId),
-          const SizedBox(height: 10),
-          _InfoRow(label: 'Tanggal', value: shiftDate),
-          const Divider(height: 20),
-          _InfoRow(
-            label: 'HM Awal',
-            value: hmStart.toStringAsFixed(1),
-          ),
-          const SizedBox(height: 10),
-          _InfoRow(
-            label: 'HM Akhir',
-            value: hmEnd?.toStringAsFixed(1) ?? '—',
-          ),
-          const SizedBox(height: 10),
-          _InfoRow(
-            label: 'Total Delta HM',
-            value: totalDeltaHm?.toStringAsFixed(1) ?? '—',
-            isBold: true,
-          ),
-        ],
-      ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final columns = width >= 840
+            ? 5
+            : width >= 620
+            ? 3
+            : 2;
+        const gap = 14.0;
+        final itemWidth = (width - (gap * (columns - 1))) / columns;
+
+        return Wrap(
+          spacing: gap,
+          runSpacing: 18,
+          children: items
+              .map(
+                (item) => SizedBox(
+                  width: itemWidth,
+                  child: _MetricTile(item: item),
+                ),
+              )
+              .toList(),
+        );
+      },
     );
   }
 }
 
-class _InfoRow extends StatelessWidget {
-  final String label;
-  final String value;
-  final bool isBold;
+class _MetricTile extends StatelessWidget {
+  final _MetricData item;
 
-  const _InfoRow({
-    required this.label,
-    required this.value,
-    this.isBold = false,
-  });
+  const _MetricTile({required this.item});
 
   @override
   Widget build(BuildContext context) {
     return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
-          style: const TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 16,
-            color: Color(0xFF757575),
-            fontWeight: FontWeight.w500,
-          ),
+        Padding(
+          padding: const EdgeInsets.only(top: 1),
+          child: Icon(item.icon, size: 28, color: const Color(0xFF333333)),
         ),
-        Text(
-          value,
-          style: TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 16,
-            color: const Color(0xFF212121),
-            fontWeight: isBold ? FontWeight.w700 : FontWeight.w600,
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                item.label.toUpperCase(),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: Color(0xFF7A7A7A),
+                  letterSpacing: 0.4,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                item.value,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF1F1F1F),
+                  height: 1.2,
+                ),
+              ),
+            ],
           ),
         ),
       ],
@@ -406,247 +433,95 @@ class _InfoRow extends StatelessWidget {
   }
 }
 
-class _MetricCard extends StatelessWidget {
+class _InsightChip extends StatelessWidget {
   final String label;
-  final String sublabel;
   final String value;
-  final Color color;
-  final IconData icon;
 
-  const _MetricCard({
-    required this.label,
-    required this.sublabel,
-    required this.value,
-    required this.color,
-    required this.icon,
-  });
+  const _InsightChip({required this.label, required this.value});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withValues(alpha: 0.25)),
+        color: const Color(0xFFF4F6FA),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE1E6F0)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(icon, size: 20, color: color),
-              const SizedBox(width: 8),
-              Text(
-                label,
-                style: TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: color,
-                ),
+      child: RichText(
+        text: TextSpan(
+          style: const TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 13,
+            color: Color(0xFF6D7280),
+          ),
+          children: [
+            TextSpan(text: '$label: '),
+            TextSpan(
+              text: value,
+              style: const TextStyle(
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF1C2338),
               ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            style: TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 32,
-              fontWeight: FontWeight.w800,
-              color: color,
             ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            sublabel,
-            style: TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 12,
-              fontWeight: FontWeight.w400,
-              color: color.withValues(alpha: 0.7),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _DurationBar extends StatelessWidget {
-  final ShiftSummary summary;
-
-  const _DurationBar({required this.summary});
-
-  @override
-  Widget build(BuildContext context) {
-    final total = summary.totalShiftSeconds;
-    if (total == 0) return const SizedBox(height: 12);
-
-    final segments = [
-      _BarSegment(
-          summary.totalOperationSeconds / total, categoryColor('operation')),
-      _BarSegment(
-          summary.totalStandbySeconds / total, categoryColor('standby')),
-      _BarSegment(summary.totalDelaySeconds / total, categoryColor('delay')),
-      _BarSegment(
-          summary.totalBreakdownSeconds / total, categoryColor('breakdown')),
-    ];
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(6),
-      child: SizedBox(
-        height: 14,
-        child: Row(
-          children: segments
-              .where((s) => s.fraction > 0)
-              .map((s) => Expanded(
-                    flex: (s.fraction * 1000).round().clamp(1, 1000),
-                    child: Container(color: s.color),
-                  ))
-              .toList(),
+          ],
         ),
       ),
     );
   }
 }
 
-class _BarSegment {
-  final double fraction;
-  final Color color;
-  const _BarSegment(this.fraction, this.color);
-}
-
-class _CategoryDurationTile extends StatelessWidget {
-  final String label;
-  final int seconds;
-  final Color color;
+class _HeaderActionButton extends StatelessWidget {
   final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
 
-  const _CategoryDurationTile({
-    required this.label,
-    required this.seconds,
-    required this.color,
+  const _HeaderActionButton({
     required this.icon,
+    required this.tooltip,
+    required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: const Color(0xFFF4F6FA),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 4,
-            offset: const Offset(0, 1),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: SizedBox(
+            width: 42,
+            height: 42,
+            child: Icon(icon, size: 20, color: const Color(0xFF2E3553)),
           ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(icon, size: 20, color: color),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: const TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 16,
-                    fontWeight: FontWeight.w500,
-                    color: Color(0xFF757575),
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  formatElapsed(seconds),
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: color,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
 }
 
-class _CountTile extends StatelessWidget {
-  final String label;
-  final int count;
+class _HeaderStatusIcon extends StatelessWidget {
   final IconData icon;
 
-  const _CountTile({
-    required this.label,
-    required this.count,
-    required this.icon,
-  });
+  const _HeaderStatusIcon({required this.icon});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 4,
-            offset: const Offset(0, 1),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Icon(icon, size: 22, color: const Color(0xFF616161)),
-          const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                label,
-                style: const TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500,
-                  color: Color(0xFF757575),
-                ),
-              ),
-              Text(
-                '$count trip',
-                style: const TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF212121),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
+    return Icon(icon, size: 24, color: const Color(0xFF333333));
   }
+}
+
+class _MetricData {
+  final String label;
+  final String value;
+  final IconData icon;
+
+  const _MetricData({
+    required this.label,
+    required this.value,
+    required this.icon,
+  });
 }
