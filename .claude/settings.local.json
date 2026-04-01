@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tail:*)",
+      "Bash(flutter test:*)",
+      "Bash(flutter devices:*)",
+      "Bash(adb reboot:*)",
+      "Bash(~/Library/Android/sdk/platform-tools/adb reboot:*)",
+      "Bash(sleep 20 && ~/Library/Android/sdk/platform-tools/adb devices 2>&1)",
+      "Bash(head:*)",
+      "Bash(flutter analyze:*)"
+    ]
+  }
+}
